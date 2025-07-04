@@ -1,0 +1,7 @@
+alert:
+  - aeqtq5jed0xs0a:
+      command: "sudo -u ansible ansible lgs-kbn -m ping"
+  - aeqtq5jed0xs0b:
+      command:
+        - "sudo -u ansible ansible lab-srv -m ping"
+        - "sudo -u ansible ansible es-master -m ping"
