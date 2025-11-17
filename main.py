@@ -56,6 +56,13 @@ async def validation_exception_handler(request: Request, exc: Exception):
     }
 
 
+# === Вспомогательный класс для безопасной подстановки ===
+class SafeDict(dict):
+    def __missing__(self, key):
+        logger.warning(f"Метка '{key}' не найдена в labels, подставлена пустая строка.")
+        return ""
+
+
 # === Роуты ===
 @app.post("/alert")
 def handle_alert(data: AlertRequest):
@@ -122,14 +129,27 @@ def handle_alert(data: AlertRequest):
                 })
                 continue
 
-            logger.info(f"Найдена команда(ы) для alert_id '{alert_id}': {command_to_run}")
-
             # Приведение к списку
             if not isinstance(command_to_run, list):
                 command_to_run = [command_to_run]
 
-            # Выполнение команд
-            for cmd in command_to_run:
+            # Подготовка словаря для подстановки меток
+            label_values = alert.labels
+
+            # Выполнение команд с подстановкой
+            for cmd_template in command_to_run:
+                try:
+                    cmd = cmd_template.format_map(SafeDict(label_values))
+                except Exception as e:
+                    logger.error(f"Ошибка при подстановке меток в команду '{cmd_template}': {e}")
+                    results.append({
+                        "alert": alert_name,
+                        "alert_id": alert_id,
+                        "command_template": cmd_template,
+                        "error": f"Label substitution failed: {e}"
+                    })
+                    continue
+
                 logger.info(f"Выполняется команда: {cmd}")
                 try:
                     result = subprocess.run(
@@ -151,7 +171,8 @@ def handle_alert(data: AlertRequest):
                     results.append({
                         "alert": alert_name,
                         "alert_id": alert_id,
-                        "command": cmd,
+                        "command_template": cmd_template,
+                        "command_executed": cmd,
                         "status": "success",
                         "stdout": stdout,
                         "stderr": stderr
@@ -164,7 +185,8 @@ def handle_alert(data: AlertRequest):
                     results.append({
                         "alert": alert_name,
                         "alert_id": alert_id,
-                        "command": cmd,
+                        "command_template": cmd_template,
+                        "command_executed": cmd,
                         "status": "failed",
                         "stdout": e.stdout.strip() if e.stdout else "",
                         "stderr": e.stderr.strip() if e.stderr else ""
@@ -174,7 +196,8 @@ def handle_alert(data: AlertRequest):
                     results.append({
                         "alert": alert_name,
                         "alert_id": alert_id,
-                        "command": cmd,
+                        "command_template": cmd_template,
+                        "command_executed": cmd,
                         "status": "timeout",
                         "stdout": "",
                         "stderr": "Command timed out"
